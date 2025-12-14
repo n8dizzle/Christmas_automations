@@ -3,23 +3,31 @@
 
 import os
 
+# Initialize with environment variables or None
+TENANT_ID = os.getenv("TENANT_ID")
+CLIENT_ID = os.getenv("CLIENT_ID")
+CLIENT_SECRET = os.getenv("CLIENT_SECRET")
+APP_KEY = os.getenv("APP_KEY")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+
 # Try to use Streamlit secrets (for cloud deployment)
 try:
     import streamlit as st
-    TENANT_ID = st.secrets.get("TENANT_ID", os.getenv("TENANT_ID"))
-    CLIENT_ID = st.secrets.get("CLIENT_ID", os.getenv("CLIENT_ID"))
-    CLIENT_SECRET = st.secrets.get("CLIENT_SECRET", os.getenv("CLIENT_SECRET"))
-    APP_KEY = st.secrets.get("APP_KEY", os.getenv("APP_KEY"))
-    GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY", os.getenv("GEMINI_API_KEY"))
-except:
-    # Fallback for non-Streamlit environments or local dev
-    TENANT_ID = os.getenv("TENANT_ID")
-    CLIENT_ID = os.getenv("CLIENT_ID")
-    CLIENT_SECRET = os.getenv("CLIENT_SECRET")
-    APP_KEY = os.getenv("APP_KEY")
-    GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+    if hasattr(st, 'secrets'):
+        if "TENANT_ID" in st.secrets:
+            TENANT_ID = st.secrets["TENANT_ID"]
+        if "CLIENT_ID" in st.secrets:
+            CLIENT_ID = st.secrets["CLIENT_ID"]
+        if "CLIENT_SECRET" in st.secrets:
+            CLIENT_SECRET = st.secrets["CLIENT_SECRET"]
+        if "APP_KEY" in st.secrets:
+            APP_KEY = st.secrets["APP_KEY"]
+        if "GEMINI_API_KEY" in st.secrets:
+            GEMINI_API_KEY = st.secrets["GEMINI_API_KEY"]
+except Exception:
+    pass
 
-# Local development fallbacks (override with your values)
+# Local development fallbacks
 if not TENANT_ID:
     TENANT_ID = "1045848487"
 if not CLIENT_ID:
@@ -32,3 +40,4 @@ if not APP_KEY:
 # API Endpoints (Production)
 API_BASE = "https://api.servicetitan.io"
 AUTH_URL = "https://auth.servicetitan.io/connect/token"
+
