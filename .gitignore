@@ -1,0 +1,36 @@
+# Secrets and API keys
+gemini_key.txt
+.streamlit/secrets.toml
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+*.so
+.eggs/
+*.egg-info/
+*.egg
+
+# Virtual environment
+venv/
+env/
+.venv/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test outputs
+warranty_output/
+debug_*.png
+
+# Playwright
+playwright-report/
+test-results/
