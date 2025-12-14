@@ -134,7 +134,7 @@ if tech_mode:
         if st.button("🔍 SCAN & ADD", type="primary"):
             with st.spinner("Processing..."):
                 try:
-                    model = genai.GenerativeModel("models/gemini-1.5-flash")
+                    model = genai.GenerativeModel("gemini-2.0-flash-exp")
                     data = process_single_image(image, model)
                     
                     if not data.get("is_data_plate"):
@@ -253,7 +253,7 @@ else:
             progress = st.progress(0)
             status = st.empty()
             
-            model = genai.GenerativeModel("models/gemini-1.5-flash")
+            model = genai.GenerativeModel("gemini-2.0-flash-exp")
             
             for i, f in enumerate(uploaded_files):
                 status.text(f"Processing {i+1}/{len(uploaded_files)}: {f.name}")
