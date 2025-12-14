@@ -110,13 +110,15 @@ if tech_mode:
     # Get job info
     if "tech_job" not in st.session_state:
         token = get_servicetitan_token()
-        if token.get("success"):
-            job = get_job_details(job_id, token["access_token"])
-            if job.get("success"):
-                st.session_state.tech_job = job
-            else:
-                st.error(f"Job not found: {job.get('error')}")
-                st.stop()
+        if not token.get("success"):
+            st.error(f"API connection failed: {token.get('error')}")
+            st.stop()
+        job = get_job_details(job_id, token["access_token"])
+        if job.get("success"):
+            st.session_state.tech_job = job
+        else:
+            st.error(f"Job not found: {job.get('error')}")
+            st.stop()
     
     st.info(f"📋 Job #{st.session_state.tech_job.get('job_number', job_id)}")
     

@@ -615,13 +615,18 @@ def append_equipment_to_job_summary(
     # Format equipment for summary
     equipment_line = format_equipment_for_summary(ocr_data, warranty_info, equipment_type)
     
+    # Scanner link for this job
+    scanner_url = f"https://christmasautomations.streamlit.app/?job_id={job_id}"
+    
     # Check if equipment section already exists
     if "📷 EQUIPMENT ADDED:" in current_summary:
-        # Append to existing section
-        new_summary = current_summary + "\n" + equipment_line
+        # Append to existing section (remove old scanner link line if present, we'll re-add at end)
+        lines = current_summary.split("\n")
+        filtered = [l for l in lines if "➕ Add more:" not in l]
+        new_summary = "\n".join(filtered) + "\n" + equipment_line + f"\n➕ Add more: {scanner_url}"
     else:
-        # Create new section
-        new_section = f"\n\n━━━━━━━━━━━━━━━━━━━━━━\n📷 EQUIPMENT ADDED:\n{equipment_line}"
+        # Create new section with scanner link
+        new_section = f"\n\n━━━━━━━━━━━━━━━━━━━━━━\n📷 EQUIPMENT ADDED:\n{equipment_line}\n➕ Add more: {scanner_url}"
         new_summary = current_summary + new_section
     
     # Update job summary
