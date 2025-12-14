@@ -3,493 +3,315 @@ import streamlit as st
 import os
 import asyncio
 import json
-import pandas as pd
 from PIL import Image
 import google.generativeai as genai
-from equipment_poc import lookup_warranty, format_for_servicetitan, generate_report
+from equipment_poc import lookup_warranty
 from servicetitan_api import (
     get_servicetitan_token,
     get_job_details,
-    get_location_details,
-    get_existing_equipment,
     detect_equipment_type,
     get_all_equipment_types,
-    build_equipment_payload,
-    create_or_update_equipment,
     push_equipment_to_servicetitan,
-    upload_equipment_attachment,
-    append_equipment_to_job_summary
 )
 
 # Page Config
 st.set_page_config(
-    page_title="Equipment OCR & Warranty",
+    page_title="Equipment OCR",
     page_icon="📸",
     layout="wide"
 )
 
 # ============================================================================
-# API KEY LOADING - Production uses secrets, local uses file
+# API KEY LOADING
 # ============================================================================
 
 def get_gemini_api_key():
     """Get Gemini API key from secrets (production) or file (local dev)."""
-    # Try Streamlit secrets first (production)
     try:
         if "GEMINI_API_KEY" in st.secrets:
             return st.secrets["GEMINI_API_KEY"]
     except:
         pass
     
-    # Fallback to local file for development
     KEY_FILE = "gemini_key.txt"
     if os.path.exists(KEY_FILE):
         with open(KEY_FILE, "r") as f:
             return f.read().strip()
-    
     return None
 
-# Get API key
 api_key = get_gemini_api_key()
-
 if not api_key:
-    st.error("⚠️ Gemini API Key not configured. Please add GEMINI_API_KEY to Streamlit secrets.")
+    st.error("⚠️ Gemini API Key not configured.")
     st.stop()
 
-# Configure Gemini
 genai.configure(api_key=api_key)
 
-# Check for URL parameters (job_id for integration mode)
+# ============================================================================
+# HELPER FUNCTIONS
+# ============================================================================
+
+def process_single_image(image, model):
+    """OCR a single image."""
+    prompt = """
+    Analyze this HVAC equipment data plate. Extract:
+    - Manufacturer, Model Number, Serial Number, Model Line
+    - Manufacture Date, Refrigerant Type
+    - Tonnage (from model number if possible), BTU capacity
+    
+    Return JSON:
+    {
+        "is_data_plate": true,
+        "raw_extraction": {
+            "manufacturer": "", "model_line": "", "model_number": "",
+            "serial_number": "", "mfr_date": "", "refrigerant_type": "",
+            "refrigerant_charge_lbs": 0, "refrigerant_charge_oz": 0
+        },
+        "derived_fields": { "tonnage": 0, "capacity_btu": 0 }
+    }
+    Return only valid JSON.
+    """
+    response = model.generate_content([prompt, image])
+    text = response.text.replace("```json", "").replace("```", "").strip()
+    return json.loads(text)
+
+def run_warranty_lookup(serial, manufacturer):
+    """Run async warranty lookup."""
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    result = loop.run_until_complete(lookup_warranty(serial, manufacturer))
+    loop.close()
+    return result
+
+# ============================================================================
+# CHECK FOR TECH MODE (URL parameter)
+# ============================================================================
+
 query_params = st.query_params
 url_job_id = query_params.get("job_id")
-tech_mode = url_job_id is not None  # Tech/mobile mode if job_id in URL
+tech_mode = url_job_id is not None
 
 
 # ============================================================================
-# TECH MODE (Mobile-friendly, linked from ServiceTitan)
+# TECH MODE - Minimal mobile interface
 # ============================================================================
 
 if tech_mode:
-    # Hide sidebar completely in tech mode
     st.markdown("""
     <style>
         [data-testid="stSidebar"] { display: none; }
-        .main-header { font-size: 1.8rem; color: #3366cc; text-align: center; }
-        .job-info { background: #e3f2fd; padding: 1rem; border-radius: 8px; margin-bottom: 1rem; }
         .stButton > button { width: 100%; padding: 1rem; font-size: 1.2rem; }
-        .success-msg { background: #c8e6c9; padding: 1rem; border-radius: 8px; text-align: center; }
-        .stFileUploader { border: 2px dashed #3366cc; border-radius: 12px; padding: 2rem; }
     </style>
     """, unsafe_allow_html=True)
     
-    st.markdown('<div class="main-header">📷 Scan Data Plate</div>', unsafe_allow_html=True)
+    st.title("📷 Scan Equipment")
     
-    # Validate job and get info
     job_id = int(url_job_id)
     
-    if "tech_job_info" not in st.session_state:
-        token_result = get_servicetitan_token()
-        if token_result.get("success"):
-            job_result = get_job_details(job_id, token_result["access_token"])
-            if job_result.get("success"):
-                st.session_state.tech_job_info = job_result
+    # Get job info
+    if "tech_job" not in st.session_state:
+        token = get_servicetitan_token()
+        if token.get("success"):
+            job = get_job_details(job_id, token["access_token"])
+            if job.get("success"):
+                st.session_state.tech_job = job
             else:
-                st.error(f"Job not found: {job_result.get('error')}")
+                st.error(f"Job not found: {job.get('error')}")
                 st.stop()
-        else:
-            st.error("Could not connect to ServiceTitan")
-            st.stop()
     
-    job_info = st.session_state.tech_job_info
+    st.info(f"📋 Job #{st.session_state.tech_job.get('job_number', job_id)}")
     
-    # Show job info
-    st.markdown(f'''
-    <div class="job-info">
-        <strong>Job #{job_info.get("job_number", job_id)}</strong><br>
-        📍 Location ID: {job_info.get("location_id")}
-    </div>
-    ''', unsafe_allow_html=True)
+    # Camera + Upload
+    camera_img = st.camera_input("Take photo")
+    uploaded_img = st.file_uploader("Or upload", type=['jpg', 'jpeg', 'png'])
     
-    # Camera/file upload (camera_input for mobile)
-    st.markdown("### Take a photo of the data plate:")
-    
-    # Use camera on mobile, file uploader as fallback
-    camera_image = st.camera_input("📸 Capture Data Plate", label_visibility="collapsed")
-    
-    st.markdown("---")
-    st.markdown("Or upload an existing photo:")
-    uploaded_image = st.file_uploader("Upload Image", type=['jpg', 'jpeg', 'png'], label_visibility="collapsed")
-    
-    # Use whichever image is available
-    image = None
-    if camera_image:
-        image = Image.open(camera_image)
-    elif uploaded_image:
-        image = Image.open(uploaded_image)
+    image = Image.open(camera_img) if camera_img else (Image.open(uploaded_img) if uploaded_img else None)
     
     if image:
-        st.image(image, caption="Data Plate", use_container_width=True)
+        st.image(image, use_container_width=True)
         
-        if st.button("🔍 SCAN & ADD EQUIPMENT", type="primary"):
-            with st.status("Processing...", expanded=True) as status:
+        if st.button("🔍 SCAN & ADD", type="primary"):
+            with st.spinner("Processing..."):
                 try:
-                    # OCR
-                    status.write("🔍 Analyzing data plate...")
                     model = genai.GenerativeModel("models/gemini-1.5-flash")
-                    prompt = """
-                    Analyze this HVAC equipment data plate. Extract:
-                    - Manufacturer, Model Number, Serial Number
-                    - Manufacture Date, Refrigerant Type
-                    - Tonnage (from model number if possible)
-                    - BTU capacity if shown
+                    data = process_single_image(image, model)
                     
-                    Return JSON:
-                    {
-                        "is_data_plate": true,
-                        "raw_extraction": {
-                            "manufacturer": "...",
-                            "model_line": "...",
-                            "model_number": "...",
-                            "serial_number": "...",
-                            "mfr_date": "...",
-                            "refrigerant_type": "...",
-                            "refrigerant_charge_lbs": 0,
-                            "refrigerant_charge_oz": 0
-                        },
-                        "derived_fields": { "tonnage": 0, "capacity_btu": 0 }
-                    }
-                    Return only valid JSON.
-                    """
-                    response = model.generate_content([prompt, image])
-                    text = response.text.replace("```json", "").replace("```", "").strip()
-                    extracted_data = json.loads(text)
-                    
-                    if not extracted_data.get("is_data_plate"):
-                        status.update(label="Not a Data Plate", state="error")
-                        st.error("Could not read data plate. Try a clearer photo.")
+                    if not data.get("is_data_plate"):
+                        st.error("Not a data plate")
                         st.stop()
                     
-                    status.write("✅ Data extracted!")
+                    serial = data["raw_extraction"].get("serial_number")
+                    mfr = data["raw_extraction"].get("manufacturer", "")
+                    warranty = run_warranty_lookup(serial, mfr) if serial else {}
                     
-                    # Warranty lookup
-                    serial = extracted_data["raw_extraction"].get("serial_number")
-                    manufacturer = extracted_data["raw_extraction"].get("manufacturer", "")
+                    eq_type = detect_equipment_type(data["raw_extraction"].get("model_number", ""), mfr)
                     
-                    status.write("🌐 Looking up warranty...")
-                    if serial:
-                        loop = asyncio.new_event_loop()
-                        asyncio.set_event_loop(loop)
-                        warranty_info = loop.run_until_complete(lookup_warranty(serial, manufacturer))
-                        loop.close()
-                        status.write(f"✅ Warranty: {warranty_info.get('lookup_status', 'N/A')}")
-                    else:
-                        warranty_info = {"lookup_status": "skipped"}
-                    
-                    # Auto-detect equipment type
-                    model_num = extracted_data["raw_extraction"].get("model_number", "")
-                    equipment_type = detect_equipment_type(model_num, manufacturer)
-                    
-                    # Push to ServiceTitan
-                    status.write("📤 Creating equipment record...")
-                    result = push_equipment_to_servicetitan(
-                        extracted_data,
-                        warranty_info,
-                        job_id,
-                        equipment_type,
-                        update_summary=True  # Write to job summary
-                    )
+                    result = push_equipment_to_servicetitan(data, warranty, job_id, eq_type, update_summary=True)
                     
                     if result.get("success"):
-                        status.update(label="✅ Equipment Added!", state="complete")
+                        st.success(f"✅ Added! ID: {result.get('equipment_id')}")
+                        st.balloons()
                     else:
-                        status.update(label="Error", state="error")
-                        st.error(result.get("error", "Failed to create equipment"))
-                        st.stop()
-                        
+                        st.error(result.get("error"))
                 except Exception as e:
-                    status.update(label="Error", state="error")
-                    st.error(f"Error: {str(e)}")
-                    st.stop()
-            
-            # Success display
-            raw = extracted_data["raw_extraction"]
-            derived = extracted_data.get("derived_fields", {})
-            
-            st.markdown(f'''
-            <div class="success-msg">
-                <h3>✅ Equipment Added!</h3>
-                <p><strong>{raw.get("manufacturer", "")} {raw.get("model_line", "")}</strong></p>
-                <p>Serial: {raw.get("serial_number", "N/A")}</p>
-                <p>Type: {equipment_type}</p>
-                <p>Equipment ID: {result.get("equipment_id")}</p>
-            </div>
-            ''', unsafe_allow_html=True)
-            
-            st.success("📝 Job summary updated!")
-            
-            # Done button
-            st.markdown("---")
-            if st.button("✅ DONE - Back to ServiceTitan"):
-                st.markdown("You can close this window and return to ServiceTitan.")
+                    st.error(str(e))
 
 else:
     # ============================================================================
-    # FULL MODE (Office use, with all features)
+    # OFFICE MODE - Full interface, unified upload
     # ============================================================================
     
-    # Styling
-    st.markdown("""
-    <style>
-        .main-header { font-size: 2.5rem; color: #3366cc; }
-        .sub-header { font-size: 1.5rem; color: #666; }
-        .success-box { padding: 1rem; background-color: #d4edda; border-radius: 5px; color: #155724; }
-        .warning-box { padding: 1rem; background-color: #fff3cd; border-radius: 5px; color: #856404; }
-    </style>
-    """, unsafe_allow_html=True)
-
-    st.markdown('<div class="main-header">Equipment OCR & Warranty Lookup</div>', unsafe_allow_html=True)
-    st.markdown('<div class="sub-header">Powered by Google Gemini Vision + ServiceTitan Integration</div>', unsafe_allow_html=True)
-    st.divider()
-
-    # Sidebar - Configuration (only show in office mode)
+    st.title("📷 Equipment OCR & Warranty")
+    
+    # Sidebar
     with st.sidebar:
-        st.header("⚙️ Status")
+        st.header("⚙️ Settings")
         st.success("✅ API Connected")
         
         st.divider()
-        st.header("ServiceTitan")
         
-        if st.button("🔌 Test Connection"):
-            with st.spinner("Testing..."):
-                token_result = get_servicetitan_token()
-                if token_result.get("success"):
-                    st.success("✅ Connected!")
+        # Job ID input
+        st.header("📋 Job")
+        job_id = st.number_input("Job ID", min_value=1, step=1, key="job_id")
+        
+        if job_id and st.button("🔍 Lookup"):
+            token = get_servicetitan_token()
+            if token.get("success"):
+                job = get_job_details(int(job_id), token["access_token"])
+                if job.get("success"):
+                    st.session_state.job = job
+                    st.success(f"✅ #{job.get('job_number')}")
                 else:
-                    st.error(f"❌ {token_result.get('error')}")
+                    st.error("Not found")
         
-        # Link generator for techs
+        if st.session_state.get("job"):
+            st.caption(f"Location: {st.session_state.job.get('location_id')}")
+        
         st.divider()
-        st.header("📱 Tech Link Generator")
         
-        # Get the app URL dynamically
+        # Link generator
+        st.header("📱 Tech Link")
         try:
-            # For Streamlit Cloud, construct from secrets or use default
             app_url = st.secrets.get("APP_URL", "https://christmasautomations.streamlit.app")
         except:
             app_url = "http://localhost:8501"
         
-        link_job_id = st.text_input("Job ID for link:", key="link_gen_job")
-        if link_job_id:
-            tech_link = f"{app_url}/?job_id={link_job_id}"
-            st.code(tech_link, language=None)
-            st.info("Add this link to job summary template")
-
-    # Main tabs
-    tab_upload, tab_batch, tab_manual = st.tabs(["📷 Single Upload", "📷📷📷 Batch Mode", "⌨️ Manual Lookup"])
-
-    # --- SINGLE UPLOAD TAB ---
-    with tab_upload:
-        col1, col2 = st.columns([1, 1])
-
-        with col1:
-            st.header("1. Upload Photo")
-            uploaded_file = st.file_uploader("Upload Data Plate Image", type=['jpg', 'jpeg', 'png'], key="single_upload")
-            
-            if uploaded_file:
-                image = Image.open(uploaded_file)
-                st.image(image, caption="Uploaded Image", use_container_width=True)
-
-        with col2:
-            st.header("2. Analysis Results")
-            
-            if uploaded_file and st.button("Analyze & Lookup Warranty", type="primary", key="single_analyze"):
-                with st.status("Processing...", expanded=True) as status:
-                    try:
-                        status.write("🔍 Analyzing with Gemini...")
-                        model = genai.GenerativeModel("models/gemini-1.5-flash")
-                        
-                        prompt = """
-                        Analyze this HVAC data plate. Extract all visible info into JSON:
-                        {
-                            "is_data_plate": true,
-                            "raw_extraction": {
-                                "manufacturer": "", "model_line": "", "model_number": "",
-                                "serial_number": "", "mfr_date": "", "refrigerant_type": "",
-                                "refrigerant_charge_lbs": 0, "refrigerant_charge_oz": 0,
-                                "volts": "", "phase": 1, "hz": 60,
-                                "min_circuit_ampacity": 0, "max_fuse_breaker": 0
-                            },
-                            "derived_fields": { "tonnage": 0, "capacity_btu": 0 }
-                        }
-                        Return only valid JSON.
-                        """
-                        
-                        response = model.generate_content([prompt, image])
-                        text = response.text.replace("```json", "").replace("```", "").strip()
-                        extracted_data = json.loads(text)
-                        status.write("✅ OCR Complete!")
-                        
-                        if not extracted_data.get("is_data_plate"):
-                            status.update(label="Not a Data Plate", state="error")
-                            st.error("Not a data plate")
-                            st.stop()
-                        
-                        # Warranty lookup
-                        status.write("🌐 Looking up warranty...")
-                        serial = extracted_data["raw_extraction"].get("serial_number")
-                        manufacturer = extracted_data["raw_extraction"].get("manufacturer", "")
-                        
-                        if serial:
-                            loop = asyncio.new_event_loop()
-                            asyncio.set_event_loop(loop)
-                            warranty_info = loop.run_until_complete(lookup_warranty(serial, manufacturer))
-                            loop.close()
-                            status.write(f"✅ Warranty: {warranty_info.get('lookup_status')}")
-                        else:
-                            warranty_info = {"lookup_status": "skipped"}
-                        
-                        status.update(label="Done!", state="complete")
-                        
-                    except Exception as e:
-                        status.update(label="Error", state="error")
-                        st.error(f"Error: {e}")
-                        st.stop()
-                
-                # Store results
-                st.session_state.single_extracted = extracted_data
-                st.session_state.single_warranty = warranty_info
-                
-                # Display extracted data
-                raw = extracted_data.get("raw_extraction", {})
-                cols = st.columns(2)
-                with cols[0]:
-                    st.subheader("Extracted Data")
-                    for k, v in list(raw.items())[:8]:
-                        if v:
-                            st.text(f"{k}: {v}")
-                with cols[1]:
-                    st.subheader("Warranty")
-                    st.text(f"Status: {warranty_info.get('lookup_status', 'N/A')}")
-                    wd = warranty_info.get("warranty_data", {})
-                    for k, v in list(wd.items())[:5]:
-                        if v and k != "components":
-                            st.text(f"{k}: {v}")
-                
-                # ServiceTitan Push
-                st.divider()
-                st.header("3. Push to ServiceTitan")
-                
-                job_col, type_col = st.columns(2)
-                with job_col:
-                    job_id = st.number_input("Job ID", min_value=1, step=1, key="single_job")
-                    if st.button("🔍 Lookup Job"):
-                        token = get_servicetitan_token()
-                        if token.get("success"):
-                            job = get_job_details(int(job_id), token["access_token"])
-                            if job.get("success"):
-                                st.session_state.job_info = job
-                                st.success(f"✅ Job #{job.get('job_number')}")
-                
-                with type_col:
-                    model_num = raw.get("model_number", "")
-                    detected = detect_equipment_type(model_num, raw.get("manufacturer"))
-                    all_types = get_all_equipment_types()
-                    idx = all_types.index(detected) if detected in all_types else 0
-                    equipment_type = st.selectbox("Equipment Type", all_types, index=idx)
-                
-                update_summary = st.checkbox("📝 Update job summary", value=True)
-                
-                if st.button("🚀 Create Equipment", type="primary", disabled=not st.session_state.get("job_info")):
-                    with st.spinner("Creating..."):
-                        result = push_equipment_to_servicetitan(
-                            extracted_data, warranty_info, int(job_id),
-                            equipment_type, update_summary=update_summary
-                        )
-                    if result.get("success"):
-                        st.success(f"✅ Equipment {result.get('action')}! ID: {result.get('equipment_id')}")
-                        if update_summary:
-                            st.info("📝 Job summary updated!")
-                    else:
-                        st.error(result.get("error"))
-
-    # --- BATCH MODE TAB ---
-    with tab_batch:
-        st.header("📷 Batch Processing")
-        st.info("Upload multiple data plate photos to process at once.")
-        
-        batch_job_id = st.number_input("Job ID (required)", min_value=1, step=1, key="batch_job")
-        
-        if batch_job_id and st.button("🔍 Lookup Job", key="batch_lookup"):
-            token = get_servicetitan_token()
-            if token.get("success"):
-                job = get_job_details(int(batch_job_id), token["access_token"])
-                if job.get("success"):
-                    st.session_state.batch_job = job
-                    st.success(f"✅ Job #{job.get('job_number')}")
-        
-        batch_files = st.file_uploader("Upload Images", type=['jpg', 'jpeg', 'png'], 
-                                       accept_multiple_files=True, key="batch_files")
-        
-        if batch_files and st.button("🔄 Process All", type="primary"):
-            results = []
-            progress = st.progress(0)
-            
-            for i, f in enumerate(batch_files):
-                progress.progress((i+1)/len(batch_files))
-                try:
-                    img = Image.open(f)
-                    model = genai.GenerativeModel("models/gemini-1.5-flash")
-                    prompt = "Extract HVAC data plate info as JSON with is_data_plate, raw_extraction, derived_fields"
-                    resp = model.generate_content([prompt, img])
-                    data = json.loads(resp.text.replace("```json", "").replace("```", "").strip())
-                    
-                    if data.get("is_data_plate"):
-                        serial = data["raw_extraction"].get("serial_number")
-                        mfr = data["raw_extraction"].get("manufacturer")
-                        
-                        loop = asyncio.new_event_loop()
-                        asyncio.set_event_loop(loop)
-                        warranty = loop.run_until_complete(lookup_warranty(serial, mfr)) if serial else {}
-                        loop.close()
-                        
-                        results.append({"file": f.name, "data": data, "warranty": warranty, "success": True})
-                except Exception as e:
-                    results.append({"file": f.name, "error": str(e), "success": False})
-            
-            st.session_state.batch_results = results
-            st.success(f"Processed {len(results)} images")
-        
-        if st.session_state.get("batch_results") and st.session_state.get("batch_job"):
-            if st.button("🚀 Push All to ServiceTitan", type="primary"):
-                for r in [x for x in st.session_state.batch_results if x.get("success")]:
-                    model_num = r["data"]["raw_extraction"].get("model_number", "")
-                    eq_type = detect_equipment_type(model_num)
-                    push_equipment_to_servicetitan(
-                        r["data"], r.get("warranty", {}), int(batch_job_id), eq_type, update_summary=True
-                    )
-                st.success("✅ All equipment pushed!")
-
-    # --- MANUAL LOOKUP TAB ---
-    with tab_manual:
-        st.header("Manual Warranty Lookup")
-        
+        if job_id:
+            st.code(f"{app_url}/?job_id={job_id}")
+    
+    # Main area - unified upload
+    st.markdown("### Upload data plate photos (1 or more)")
+    
+    uploaded_files = st.file_uploader(
+        "Drop photos here",
+        type=['jpg', 'jpeg', 'png'],
+        accept_multiple_files=True,
+        label_visibility="collapsed"
+    )
+    
+    # Manual serial entry option
+    with st.expander("⌨️ Or enter serial manually"):
         col1, col2 = st.columns(2)
         with col1:
             man_serial = st.text_input("Serial Number")
         with col2:
             man_mfr = st.selectbox("Manufacturer", ["Trane", "American Standard", "Carrier", "Other"])
         
-        if st.button("Lookup Warranty", type="primary") and man_serial:
+        if st.button("Lookup Warranty") and man_serial:
             with st.spinner("Looking up..."):
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                warranty = loop.run_until_complete(lookup_warranty(man_serial, man_mfr))
-                loop.close()
+                warranty = run_warranty_lookup(man_serial, man_mfr)
+            st.json(warranty.get("warranty_data", {}))
+    
+    # Show uploaded images
+    if uploaded_files:
+        st.markdown(f"### {len(uploaded_files)} photo(s) ready")
+        
+        # Show thumbnails
+        cols = st.columns(min(len(uploaded_files), 4))
+        for i, f in enumerate(uploaded_files[:4]):
+            with cols[i]:
+                st.image(Image.open(f), use_container_width=True)
+        
+        if len(uploaded_files) > 4:
+            st.caption(f"... and {len(uploaded_files) - 4} more")
+        
+        # Process button
+        update_summary = st.checkbox("📝 Update job summary", value=True)
+        
+        process_btn = st.button(
+            f"🚀 Process {'All ' + str(len(uploaded_files)) + ' Photos' if len(uploaded_files) > 1 else 'Photo'}",
+            type="primary",
+            disabled=not st.session_state.get("job")
+        )
+        
+        if not st.session_state.get("job"):
+            st.warning("⚠️ Enter a Job ID in the sidebar first")
+        
+        if process_btn:
+            results = []
+            progress = st.progress(0)
+            status = st.empty()
             
-            st.subheader(f"Status: {warranty.get('lookup_status', 'Unknown').upper()}")
+            model = genai.GenerativeModel("models/gemini-1.5-flash")
             
-            if warranty.get("pdf_url"):
-                st.link_button("📄 Open Warranty", warranty["pdf_url"])
+            for i, f in enumerate(uploaded_files):
+                status.text(f"Processing {i+1}/{len(uploaded_files)}: {f.name}")
+                progress.progress((i + 1) / len(uploaded_files))
+                
+                try:
+                    img = Image.open(f)
+                    
+                    # OCR
+                    data = process_single_image(img, model)
+                    
+                    if not data.get("is_data_plate"):
+                        results.append({"file": f.name, "success": False, "error": "Not a data plate"})
+                        continue
+                    
+                    raw = data["raw_extraction"]
+                    
+                    # Warranty lookup
+                    serial = raw.get("serial_number")
+                    mfr = raw.get("manufacturer", "")
+                    warranty = run_warranty_lookup(serial, mfr) if serial else {}
+                    
+                    # Detect type
+                    eq_type = detect_equipment_type(raw.get("model_number", ""), mfr)
+                    
+                    # Push to ServiceTitan
+                    push_result = push_equipment_to_servicetitan(
+                        data, warranty, int(job_id), eq_type, update_summary=update_summary
+                    )
+                    
+                    results.append({
+                        "file": f.name,
+                        "success": push_result.get("success"),
+                        "equipment_id": push_result.get("equipment_id"),
+                        "manufacturer": mfr,
+                        "serial": serial,
+                        "type": eq_type,
+                        "error": push_result.get("error")
+                    })
+                    
+                except Exception as e:
+                    results.append({"file": f.name, "success": False, "error": str(e)})
             
-            if warranty.get("warranty_data"):
-                st.json(warranty["warranty_data"])
+            progress.empty()
+            status.empty()
+            
+            # Show results
+            success_count = sum(1 for r in results if r.get("success"))
+            
+            if success_count == len(results):
+                st.success(f"✅ All {success_count} equipment records created!")
+                st.balloons()
+            elif success_count > 0:
+                st.warning(f"⚠️ {success_count}/{len(results)} succeeded")
+            else:
+                st.error("❌ All failed")
+            
+            # Results table
+            for r in results:
+                if r.get("success"):
+                    st.markdown(f"✅ **{r.get('manufacturer', '')}** - {r.get('type', '')} | Serial: {r.get('serial', 'N/A')} | ID: {r.get('equipment_id')}")
+                else:
+                    st.markdown(f"❌ {r.get('file')}: {r.get('error')}")
