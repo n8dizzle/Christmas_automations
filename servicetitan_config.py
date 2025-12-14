@@ -31,9 +31,9 @@ except Exception:
 if not TENANT_ID:
     TENANT_ID = "1045848487"
 if not CLIENT_ID:
-    CLIENT_ID = "cid.t1lk0gh2gztvleub8kp4a2jmo"
+    CLIENT_ID = "cid.id52p1bf03y336mmge840en5l"
 if not CLIENT_SECRET:
-    CLIENT_SECRET = "cs2.6yb7m7hh09wa4huzz0urjwe7tk9gl0v3ik7xyvk3ggjgwc810e"
+    CLIENT_SECRET = "cs1.8jckmgn897lx9qr4ruw9jg185ujh62zi1v9fkjnjnqtom0zdqw"
 if not APP_KEY:
     APP_KEY = "ak1.fscoe5xled3zhbbzcnxjeimyx"
 
