@@ -28,6 +28,37 @@ st.set_page_config(
     layout="wide"
 )
 
+# ============================================================================
+# API KEY LOADING - Production uses secrets, local uses file
+# ============================================================================
+
+def get_gemini_api_key():
+    """Get Gemini API key from secrets (production) or file (local dev)."""
+    # Try Streamlit secrets first (production)
+    try:
+        if "GEMINI_API_KEY" in st.secrets:
+            return st.secrets["GEMINI_API_KEY"]
+    except:
+        pass
+    
+    # Fallback to local file for development
+    KEY_FILE = "gemini_key.txt"
+    if os.path.exists(KEY_FILE):
+        with open(KEY_FILE, "r") as f:
+            return f.read().strip()
+    
+    return None
+
+# Get API key
+api_key = get_gemini_api_key()
+
+if not api_key:
+    st.error("⚠️ Gemini API Key not configured. Please add GEMINI_API_KEY to Streamlit secrets.")
+    st.stop()
+
+# Configure Gemini
+genai.configure(api_key=api_key)
+
 # Check for URL parameters (job_id for integration mode)
 query_params = st.query_params
 url_job_id = query_params.get("job_id")
@@ -39,9 +70,10 @@ tech_mode = url_job_id is not None  # Tech/mobile mode if job_id in URL
 # ============================================================================
 
 if tech_mode:
-    # Minimal mobile-friendly interface
+    # Hide sidebar completely in tech mode
     st.markdown("""
     <style>
+        [data-testid="stSidebar"] { display: none; }
         .main-header { font-size: 1.8rem; color: #3366cc; text-align: center; }
         .job-info { background: #e3f2fd; padding: 1rem; border-radius: 8px; margin-bottom: 1rem; }
         .stButton > button { width: 100%; padding: 1rem; font-size: 1.2rem; }
@@ -51,16 +83,6 @@ if tech_mode:
     """, unsafe_allow_html=True)
     
     st.markdown('<div class="main-header">📷 Scan Data Plate</div>', unsafe_allow_html=True)
-    
-    # API Key (load from file silently)
-    KEY_FILE = "gemini_key.txt"
-    if os.path.exists(KEY_FILE):
-        with open(KEY_FILE, "r") as f:
-            api_key = f.read().strip()
-        genai.configure(api_key=api_key)
-    else:
-        st.error("API Key not configured. Please contact admin.")
-        st.stop()
     
     # Validate job and get info
     job_id = int(url_job_id)
@@ -229,32 +251,10 @@ else:
     st.markdown('<div class="sub-header">Powered by Google Gemini Vision + ServiceTitan Integration</div>', unsafe_allow_html=True)
     st.divider()
 
-    # Sidebar - Configuration
+    # Sidebar - Configuration (only show in office mode)
     with st.sidebar:
-        st.header("Configuration")
-        
-        KEY_FILE = "gemini_key.txt"
-        saved_key = ""
-        if os.path.exists(KEY_FILE):
-            with open(KEY_FILE, "r") as f:
-                saved_key = f.read().strip()
-                
-        api_key = st.text_input("Google Gemini API Key", value=saved_key, type="password")
-        
-        save_key = st.checkbox("Save API Key", value=bool(saved_key))
-        
-        if save_key and api_key:
-            with open(KEY_FILE, "w") as f:
-                f.write(api_key)
-        elif not save_key and os.path.exists(KEY_FILE):
-            os.remove(KEY_FILE)
-        
-        if not api_key:
-            st.warning("Please enter your Gemini API Key.")
-            st.stop()
-            
-        st.success("API Key provided!")
-        genai.configure(api_key=api_key)
+        st.header("⚙️ Status")
+        st.success("✅ API Connected")
         
         st.divider()
         st.header("ServiceTitan")
@@ -270,11 +270,17 @@ else:
         # Link generator for techs
         st.divider()
         st.header("📱 Tech Link Generator")
+        
+        # Get the app URL dynamically
+        try:
+            # For Streamlit Cloud, construct from secrets or use default
+            app_url = st.secrets.get("APP_URL", "https://christmasautomations.streamlit.app")
+        except:
+            app_url = "http://localhost:8501"
+        
         link_job_id = st.text_input("Job ID for link:", key="link_gen_job")
         if link_job_id:
-            # For demo, use localhost. Replace with real URL when deployed
-            base_url = "http://localhost:8501"
-            tech_link = f"{base_url}/?job_id={link_job_id}"
+            tech_link = f"{app_url}/?job_id={link_job_id}"
             st.code(tech_link, language=None)
             st.info("Add this link to job summary template")
 
