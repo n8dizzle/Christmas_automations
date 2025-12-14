@@ -75,12 +75,18 @@ def process_single_image(image, model):
     return json.loads(text)
 
 def run_warranty_lookup(serial, manufacturer):
-    """Run async warranty lookup."""
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    result = loop.run_until_complete(lookup_warranty(serial, manufacturer))
-    loop.close()
-    return result
+    """Run async warranty lookup. Returns empty dict if Playwright isn't available (Streamlit Cloud)."""
+    try:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        result = loop.run_until_complete(lookup_warranty(serial, manufacturer))
+        loop.close()
+        return result
+    except Exception as e:
+        # Playwright not available on Streamlit Cloud - skip warranty lookup
+        if "Executable doesn't exist" in str(e) or "playwright" in str(e).lower():
+            return {"lookup_status": "skipped", "error": "Warranty lookup not available in cloud mode"}
+        raise e
 
 # ============================================================================
 # CHECK FOR TECH MODE (URL parameter)
