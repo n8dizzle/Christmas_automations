@@ -772,7 +772,6 @@ def build_equipment_payload(
                 try:
                     end_str = comp.get("end_date", "")
                     if end_str:
-                        from datetime import datetime
                         end_dt = datetime.strptime(end_str, "%m/%d/%Y")
                         if latest_end is None or end_dt > latest_end:
                             latest_end = end_dt
@@ -791,7 +790,6 @@ def build_equipment_payload(
             return None
         try:
             if "/" in str(date_str):
-                from datetime import datetime
                 dt = datetime.strptime(date_str, "%m/%d/%Y")
                 return dt.strftime("%Y-%m-%d")
             return date_str
