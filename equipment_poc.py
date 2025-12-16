@@ -1,5 +1,6 @@
 import asyncio
 import os
+import re
 from datetime import datetime
 from playwright.async_api import async_playwright
 import json
@@ -386,8 +387,7 @@ def parse_carrier_warranty_text(text: str) -> dict:
     Parse warranty info from Carrier warranty page text.
     Extracts all fields needed for ServiceTitan equipment records.
     """
-    import re
-    from datetime import datetime
+    # Using top-level imports for re and datetime
     
     warranty = {
         # Core equipment info
@@ -578,7 +578,7 @@ def parse_carrier_warranty_text(text: str) -> dict:
 
 def parse_warranty_text(text: str) -> dict:
     """Parse warranty info from page text."""
-    import re
+    # Using top-level imports for re and datetime
     
     warranty = {
         "model_number": None,
@@ -617,7 +617,6 @@ def parse_warranty_text(text: str) -> dict:
         # Calculate install date from first component
         if warranty["install_date"] is None:
             try:
-                from datetime import datetime
                 end = datetime.strptime(end_date, "%m/%d/%Y")
                 install = end.replace(year=end.year - int(years))
                 warranty["install_date"] = install.strftime("%m/%d/%Y")
