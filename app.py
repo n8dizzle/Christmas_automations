@@ -199,7 +199,7 @@ else:
         # Link generator
         st.header("📱 Tech Link")
         try:
-            app_url = st.secrets.get("APP_URL", "https://christmasautomations.streamlit.app")
+            app_url = st.secrets.get("APP_URL", "https://christmas-automations.streamlit.app")
         except:
             app_url = "http://localhost:8501"
         

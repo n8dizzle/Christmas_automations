@@ -616,7 +616,7 @@ def append_equipment_to_job_summary(
     equipment_line = format_equipment_for_summary(ocr_data, warranty_info, equipment_type)
     
     # Scanner link for this job
-    scanner_url = f"https://christmasautomations.streamlit.app/?job_id={job_id}"
+    scanner_url = f"https://christmas-automations.streamlit.app/?job_id={job_id}"
     
     # Check if equipment section already exists
     if "📷 EQUIPMENT ADDED:" in current_summary:
