@@ -400,7 +400,7 @@ def find_equipment_by_serial(serial_number: str, location_id: int, access_token:
         return existing
     
     for equip in existing.get("equipment", []):
-        if serial_number and equip.get("serialNumber", "").upper() == serial_number.upper():
+        if serial_number and equip.get("serialNumber", "").upper() == str(serial_number).upper():
             return {
                 "success": True,
                 "found": True,
