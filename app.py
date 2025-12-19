@@ -72,7 +72,19 @@ def process_single_image(image, model):
     """
     response = model.generate_content([prompt, image])
     text = response.text.replace("```json", "").replace("```", "").strip()
-    return json.loads(text)
+    data = json.loads(text)
+    
+    # Sanitize: Convert None values to empty strings to prevent .upper() errors
+    if "raw_extraction" in data:
+        for key, value in data["raw_extraction"].items():
+            if value is None:
+                data["raw_extraction"][key] = ""
+    if "derived_fields" in data:
+        for key, value in data["derived_fields"].items():
+            if value is None:
+                data["derived_fields"][key] = 0 if key in ["tonnage", "capacity_btu"] else ""
+    
+    return data
 
 def run_warranty_lookup(serial, manufacturer):
     """Run async warranty lookup. Returns empty dict if Playwright isn't available (Streamlit Cloud)."""
