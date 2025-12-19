@@ -465,8 +465,8 @@ def parse_carrier_warranty_text(text: str) -> dict:
             break
     
     # If no brand found, default based on model prefix
-    if not warranty["brand"] and warranty["model_number"]:
-        model = warranty["model_number"].upper()
+    if not warranty["brand"] and warranty.get("model_number"):
+        model = str(warranty["model_number"]).upper()
         # Carrier brand prefixes
         if model.startswith("24"):
             warranty["brand"] = "Carrier"
@@ -519,8 +519,8 @@ def parse_carrier_warranty_text(text: str) -> dict:
     # Carrier model numbers typically encode tonnage: e.g., N5A5S48AKAWA
     # The "48" indicates 48,000 BTU = 4 tons (12,000 BTU per ton)
     # =========================================================================
-    if warranty["model_number"]:
-        model = warranty["model_number"].upper()
+    if warranty.get("model_number"):
+        model = str(warranty["model_number"]).upper()
         # Look for 2-3 digit number that represents BTU in thousands
         btu_match = re.search(r'[A-Z](\d{2,3})[A-Z]', model)
         if btu_match:
@@ -534,8 +534,8 @@ def parse_carrier_warranty_text(text: str) -> dict:
     # =========================================================================
     # Determine Product Type from Model Number
     # =========================================================================
-    if warranty["model_number"]:
-        model = warranty["model_number"].upper()
+    if warranty.get("model_number"):
+        model = str(warranty["model_number"]).upper()
         # Common prefixes/patterns
         if "A" in model[:3] or "AC" in model[:4]:
             warranty["product_type"] = "A/C Condenser"

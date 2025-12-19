@@ -53,9 +53,9 @@ def detect_equipment_type(model_number: str, manufacturer: str = None, product_t
     Returns the best-guess equipment type string.
     """
     if not model_number:
-        return "Other"
+        return product_type_hint if product_type_hint else "Other"
     
-    model_upper = model_number.upper()
+    model_upper = str(model_number).upper()
     
     # Check for pattern matches
     for equip_type, config in EQUIPMENT_TYPES.items():
