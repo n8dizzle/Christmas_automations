@@ -14,6 +14,10 @@ async def lookup_warranty(serial_number: str, manufacturer: str) -> dict:
     Look up warranty information based on manufacturer.
     Currently supports Trane/American Standard.
     """
+    # Defensive sanitization - convert None to empty string
+    serial_number = str(serial_number) if serial_number else ""
+    manufacturer = str(manufacturer) if manufacturer else ""
+    
     # Normalize manufacturer
     mfr_lower = manufacturer.lower()
     

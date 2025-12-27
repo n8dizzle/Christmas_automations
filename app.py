@@ -2,6 +2,7 @@
 import streamlit as st
 import os
 import asyncio
+import traceback
 import json
 from PIL import Image
 import google.generativeai as genai
@@ -173,7 +174,8 @@ if tech_mode:
                     else:
                         st.error(result.get("error"))
                 except Exception as e:
-                    st.error(str(e))
+                    st.error(f"Error: {str(e)}")
+                    st.code(traceback.format_exc())
 
 else:
     # ============================================================================
@@ -313,7 +315,7 @@ else:
                     })
                     
                 except Exception as e:
-                    results.append({"file": f.name, "success": False, "error": str(e)})
+                    results.append({"file": f.name, "success": False, "error": f"{str(e)}\n{traceback.format_exc()}"})
             
             progress.empty()
             status.empty()
