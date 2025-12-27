@@ -584,9 +584,48 @@ def format_equipment_for_summary(
     # Build registration/warranty string
     if warranty_end:
         reg_str = "Registered" if is_registered else "Not Registered"
-        warranty_str = f"{reg_str} - Warranty until {warranty_end}"
+        # Check if expired
+        try:
+            end_dt = datetime.strptime(warranty_end, "%m/%d/%Y")
+            if end_dt < datetime.now():
+                warranty_str = f"{reg_str} - WARRANTY EXPIRED ({warranty_end})"
+            else:
+                warranty_str = f"{reg_str} - Warranty until {warranty_end}"
+        except:
+            warranty_str = f"{reg_str} - Warranty until {warranty_end}"
     else:
-        warranty_str = "Warranty status unknown"
+        # No warranty lookup - calculate from manufacture date
+        mfr_date = raw.get("mfr_date", "")
+        install_date = raw.get("install_date", "")
+        date_str = mfr_date or install_date
+        
+        if date_str:
+            # Try to parse and calculate warranty status
+            try:
+                # Handle various date formats
+                mfr_year = None
+                if len(date_str) == 4 and date_str.isdigit():
+                    mfr_year = int(date_str)
+                elif "/" in date_str:
+                    parts = date_str.split("/")
+                    mfr_year = int(parts[-1]) if len(parts[-1]) == 4 else int("20" + parts[-1]) if len(parts[-1]) == 2 else None
+                
+                if mfr_year:
+                    current_year = datetime.now().year
+                    equipment_age = current_year - mfr_year
+                    # Standard manufacturer warranty is 5-10 years
+                    if equipment_age > 10:
+                        warranty_str = f"WARRANTY EXPIRED (Mfr: {mfr_year}, {equipment_age}+ years old)"
+                    elif equipment_age > 5:
+                        warranty_str = f"Warranty likely expired (Mfr: {mfr_year}, {equipment_age} years old)"
+                    else:
+                        warranty_str = f"Warranty likely active (Mfr: {mfr_year}, {equipment_age} years old)"
+                else:
+                    warranty_str = f"Warranty status unknown (Mfr date: {date_str})"
+            except:
+                warranty_str = "Warranty status unknown"
+        else:
+            warranty_str = "Warranty status unknown"
     
     # Format the summary line
     summary_line = f"• {equip_desc}\n  Serial: {serial}\n  {warranty_str}"
@@ -871,9 +910,9 @@ def build_equipment_payload(
         payload["manufacturerWarrantyEnd"] = warranty_end
     
     # Add brand if different from manufacturer (for Carrier family)
-    brand = wd.get("brand")
-    if brand and brand != manufacturer:
-        payload["brand"] = brand
+    brand = wd.get("brand") or manufacturer
+    if brand:
+        payload["brand"] = brand[:50]
     
     return payload
 
@@ -888,6 +927,7 @@ def push_equipment_to_servicetitan(
     job_id: int,
     equipment_type_override: str = None,
     upload_warranty_file: str = None,
+    upload_dataplate_file: str = None,
     update_summary: bool = True
 ) -> dict:
     """
@@ -899,6 +939,7 @@ def push_equipment_to_servicetitan(
         job_id: ServiceTitan job ID for location resolution
         equipment_type_override: Optional override for equipment type
         upload_warranty_file: Optional path to warranty PDF/image to attach
+        upload_dataplate_file: Optional path to data plate photo to attach
         update_summary: Whether to update job summary with equipment info
     
     Returns:
@@ -985,6 +1026,29 @@ def push_equipment_to_servicetitan(
         except Exception as e:
             result["steps"].append({
                 "step": "upload_attachment",
+                "success": False,
+                "error": str(e)
+            })
+    
+    # Step 5b: Upload data plate photo if provided
+    if upload_dataplate_file and equipment_id:
+        import asyncio
+        try:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            attach_result = loop.run_until_complete(
+                upload_equipment_attachment(equipment_id, upload_dataplate_file, access_token, "data_plate.png")
+            )
+            loop.close()
+            
+            result["steps"].append({
+                "step": "upload_dataplate",
+                "success": attach_result.get("success", False),
+                "error": attach_result.get("error")
+            })
+        except Exception as e:
+            result["steps"].append({
+                "step": "upload_dataplate",
                 "success": False,
                 "error": str(e)
             })

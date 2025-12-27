@@ -166,7 +166,21 @@ if tech_mode:
                     
                     eq_type = detect_equipment_type(data["raw_extraction"].get("model_number", ""), mfr)
                     
-                    result = push_equipment_to_servicetitan(data, warranty, job_id, eq_type, update_summary=True)
+                    # Save image to temp file for upload
+                    import tempfile
+                    temp_img_path = None
+                    try:
+                        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
+                            image.save(f, format="PNG")
+                            temp_img_path = f.name
+                    except:
+                        pass
+                    
+                    result = push_equipment_to_servicetitan(
+                        data, warranty, job_id, eq_type, 
+                        upload_dataplate_file=temp_img_path,
+                        update_summary=True
+                    )
                     
                     if result.get("success"):
                         st.success(f"✅ Added! ID: {result.get('equipment_id')}")
@@ -299,9 +313,21 @@ else:
                     # Detect type
                     eq_type = detect_equipment_type(raw.get("model_number", ""), mfr)
                     
+                    # Save image to temp file for upload
+                    import tempfile
+                    temp_img_path = None
+                    try:
+                        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
+                            img.save(tmp, format="PNG")
+                            temp_img_path = tmp.name
+                    except:
+                        pass
+                    
                     # Push to ServiceTitan
                     push_result = push_equipment_to_servicetitan(
-                        data, warranty, int(job_id), eq_type, update_summary=update_summary
+                        data, warranty, int(job_id), eq_type, 
+                        upload_dataplate_file=temp_img_path,
+                        update_summary=update_summary
                     )
                     
                     results.append({
