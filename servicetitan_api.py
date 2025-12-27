@@ -676,7 +676,7 @@ def append_equipment_to_job_summary(
 # ATTACHMENT UPLOAD
 # ============================================================================
 
-async def upload_equipment_attachment(
+def upload_equipment_attachment(
     equipment_id: int,
     file_path: str,
     access_token: str,
@@ -684,6 +684,7 @@ async def upload_equipment_attachment(
 ) -> dict:
     """
     Upload a file (warranty PDF, photo) as an attachment to equipment record.
+    Uses synchronous requests for Streamlit Cloud compatibility.
     """
     if not os.path.exists(file_path):
         return {"success": False, "error": f"File not found: {file_path}"}
@@ -710,29 +711,26 @@ async def upload_equipment_attachment(
     
     try:
         with open(file_path, "rb") as f:
-            file_bytes = f.read()
+            files = {
+                'file': (file_name, f, content_type)
+            }
+            data = {
+                'installedEquipmentId': str(equipment_id)
+            }
+            
+            response = requests.post(url, headers=headers, files=files, data=data, timeout=60)
         
-        from aiohttp import FormData
-        
-        data = FormData()
-        data.add_field('file', file_bytes, filename=file_name, content_type=content_type)
-        data.add_field('installedEquipmentId', str(equipment_id))
-        
-        async with aiohttp.ClientSession() as session:
-            async with session.post(url, headers=headers, data=data) as response:
-                response_text = await response.text()
-                
-                if response.status in [200, 201]:
-                    return {
-                        "success": True,
-                        "message": f"Uploaded {file_name} to Equipment {equipment_id}",
-                        "response": response_text
-                    }
-                else:
-                    return {
-                        "success": False,
-                        "error": f"Upload failed: {response.status} - {response_text}"
-                    }
+        if response.status_code in [200, 201]:
+            return {
+                "success": True,
+                "message": f"Uploaded {file_name} to Equipment {equipment_id}",
+                "response": response.text
+            }
+        else:
+            return {
+                "success": False,
+                "error": f"Upload failed: {response.status_code} - {response.text}"
+            }
     except Exception as e:
         return {
             "success": False,
@@ -770,12 +768,7 @@ def build_equipment_payload(
     model_line = raw.get("model_line", "")
     model_number = raw.get("model_number", "")
     
-    if model_line:
-        name = f"{manufacturer} {model_line}".strip()
-    else:
-        name = f"{manufacturer} {model_number[:10]}".strip() if model_number else manufacturer
-    
-    # Auto-detect equipment type
+    # Auto-detect equipment type FIRST (needed for name)
     detected_type = detect_equipment_type(
         model_number,
         manufacturer,
@@ -786,12 +779,34 @@ def build_equipment_payload(
     # Build capacity string
     tonnage = derived.get("tonnage") or wd.get("tonnage")
     capacity_btu = derived.get("capacity_btu")
+    
+    # Format capacity for display and name
     if tonnage:
-        capacity = f"{tonnage} Tons"
-        if capacity_btu:
-            capacity += f" ({capacity_btu:,} BTU)"
+        capacity = f"{tonnage} Ton" if float(tonnage) == 1 else f"{int(float(tonnage))} Ton"
+        capacity_short = capacity  # For name
+    elif capacity_btu:
+        capacity = f"{capacity_btu:,} BTU"
+        capacity_short = f"{capacity_btu // 1000}K BTU"
     else:
         capacity = ""
+        capacity_short = ""
+    
+    # Clean brand name (remove INC., LLC, etc. and title case)
+    brand = manufacturer.upper()
+    for suffix in [" INC.", " INC", " LLC", " CORP", " CO.", " CORPORATION"]:
+        brand = brand.replace(suffix, "")
+    brand = brand.strip().title()  # "AMERICAN STANDARD" -> "American Standard"
+    
+    # Build equipment name: Brand + Equipment Type + Capacity
+    # Example: "American Standard Air Conditioner 4 Ton"
+    name_parts = []
+    if brand:
+        name_parts.append(brand)
+    if equipment_type and equipment_type != "Other":
+        name_parts.append(equipment_type)
+    if capacity_short:
+        name_parts.append(capacity_short)
+    name = " ".join(name_parts) if name_parts else f"Equipment - {model_number[:15]}"
     
     # Parse warranty dates
     install_date = None
@@ -909,8 +924,7 @@ def build_equipment_payload(
     if warranty_end:
         payload["manufacturerWarrantyEnd"] = warranty_end
     
-    # Add brand if different from manufacturer (for Carrier family)
-    brand = wd.get("brand") or manufacturer
+    # Add brand (already cleaned earlier in function)
     if brand:
         payload["brand"] = brand[:50]
     
@@ -1009,38 +1023,24 @@ def push_equipment_to_servicetitan(
     
     # Step 5: Upload warranty attachment if provided
     if upload_warranty_file and equipment_id:
-        import asyncio
         try:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            attach_result = loop.run_until_complete(
-                upload_equipment_attachment(equipment_id, upload_warranty_file, access_token)
-            )
-            loop.close()
-            
+            attach_result = upload_equipment_attachment(equipment_id, upload_warranty_file, access_token, "warranty_document.pdf")
             result["steps"].append({
-                "step": "upload_attachment",
+                "step": "upload_warranty",
                 "success": attach_result.get("success", False),
                 "error": attach_result.get("error")
             })
         except Exception as e:
             result["steps"].append({
-                "step": "upload_attachment",
+                "step": "upload_warranty",
                 "success": False,
                 "error": str(e)
             })
     
     # Step 5b: Upload data plate photo if provided
     if upload_dataplate_file and equipment_id:
-        import asyncio
         try:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            attach_result = loop.run_until_complete(
-                upload_equipment_attachment(equipment_id, upload_dataplate_file, access_token, "data_plate.png")
-            )
-            loop.close()
-            
+            attach_result = upload_equipment_attachment(equipment_id, upload_dataplate_file, access_token, "data_plate.png")
             result["steps"].append({
                 "step": "upload_dataplate",
                 "success": attach_result.get("success", False),
