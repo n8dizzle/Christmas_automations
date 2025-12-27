@@ -838,21 +838,46 @@ def build_equipment_payload(
     if not install_date and raw.get("mfr_date"):
         install_date = raw.get("mfr_date")
     
-    # Format dates to ISO if in MM/DD/YYYY format
+    # Format dates to ISO - handles multiple formats
     def format_date(date_str):
         if not date_str:
             return None
+        date_str = str(date_str).strip()
         try:
-            if "/" in str(date_str):
+            # Try MM/DD/YYYY
+            if "/" in date_str and len(date_str.split("/")) == 3:
                 dt = datetime.strptime(date_str, "%m/%d/%Y")
                 return dt.strftime("%Y-%m-%d")
-            return date_str
+            # Try M/YYYY (e.g., "5/2007") -> assume first of month
+            elif "/" in date_str and len(date_str.split("/")) == 2:
+                parts = date_str.split("/")
+                month = int(parts[0])
+                year = int(parts[1])
+                return f"{year}-{month:02d}-01"
+            # Try just YYYY
+            elif len(date_str) == 4 and date_str.isdigit():
+                return f"{date_str}-01-01"
+            # Try YYYY-MM-DD already
+            elif "-" in date_str:
+                return date_str
+            return None
         except:
             return None
     
     install_date = format_date(install_date)
     warranty_start = format_date(warranty_start) or install_date
     warranty_end = format_date(warranty_end)
+    
+    # Calculate warranty period if we have install date but no warranty dates
+    if install_date and not warranty_end:
+        try:
+            install_dt = datetime.strptime(install_date, "%Y-%m-%d")
+            # Standard manufacturer warranty is 10 years for registered, 5 for unregistered
+            warranty_end_dt = install_dt.replace(year=install_dt.year + 10)
+            warranty_end = warranty_end_dt.strftime("%Y-%m-%d")
+            warranty_start = install_date
+        except:
+            pass
     
     # Build comprehensive memo
     memo_parts = []
