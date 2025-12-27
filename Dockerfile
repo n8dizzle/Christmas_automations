@@ -15,11 +15,8 @@ RUN playwright install chromium
 # Copy application code
 COPY . .
 
-# Expose Streamlit port
-EXPOSE 8501
-
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
 
-# Run Streamlit
-CMD ["streamlit", "run", "app.py", "--server.port=8501", "--server.address=0.0.0.0", "--server.headless=true"]
+# Railway uses PORT env variable - don't hardcode
+# CMD is set in railway.toml to use $PORT
