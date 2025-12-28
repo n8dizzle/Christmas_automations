@@ -17,10 +17,5 @@ COPY . .
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
-ENV PORT=8501
 
-# Expose port
-EXPOSE 8501
-
-# Default command - Railway will override PORT via env
-CMD streamlit run app.py --server.port=${PORT} --server.address=0.0.0.0 --server.headless=true
+# No CMD - Railway will use Procfile
