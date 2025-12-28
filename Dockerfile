@@ -18,4 +18,8 @@ COPY . .
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
 
-# No CMD - Railway will use Procfile
+# Create startup script that uses PORT env var
+RUN echo '#!/bin/bash\nexec streamlit run app.py --server.port="${PORT:-8501}" --server.address=0.0.0.0 --server.headless=true' > /start.sh && chmod +x /start.sh
+
+# Run the startup script
+CMD ["/bin/bash", "/start.sh"]
