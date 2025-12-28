@@ -4,5 +4,4 @@ dockerfilePath = "./Dockerfile"
 
 [deploy]
 healthcheckPath = "/_stcore/health"
-healthcheckTimeout = 600
-startCommand = "streamlit run app.py --server.port=$PORT --server.address=0.0.0.0 --server.headless=true"
+healthcheckTimeout = 300
