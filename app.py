@@ -27,13 +27,20 @@ st.set_page_config(
 # ============================================================================
 
 def get_gemini_api_key():
-    """Get Gemini API key from secrets (production) or file (local dev)."""
+    """Get Gemini API key from env vars (Railway), secrets (Streamlit Cloud), or file (local dev)."""
+    # First check environment variables (Railway)
+    env_key = os.getenv("GEMINI_API_KEY")
+    if env_key:
+        return env_key
+    
+    # Then check Streamlit secrets (Streamlit Cloud)
     try:
         if "GEMINI_API_KEY" in st.secrets:
             return st.secrets["GEMINI_API_KEY"]
     except:
         pass
     
+    # Finally check local file (development)
     KEY_FILE = "gemini_key.txt"
     if os.path.exists(KEY_FILE):
         with open(KEY_FILE, "r") as f:
