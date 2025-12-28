@@ -16,15 +16,16 @@ from servicetitan_config import TENANT_ID, CLIENT_ID, CLIENT_SECRET, APP_KEY, AP
 # ============================================================================
 
 EQUIPMENT_TYPES = {
-    "Air Conditioner": {
+    # Use EXACT ServiceTitan dropdown values
+    "A/C Condenser": {
         "patterns": ["AC", "A/C", "condenser", "split", "24AC", "24ACC", "4AC", "4ACC", "2TTR", "4TTR", "XR1"],
         "model_prefixes": ["24", "4A"],
     },
-    "Gas Furnace": {
+    "Furnace": {
         "patterns": ["furnace", "GAS", "80%", "95%", "96%", "TUD", "TDD", "XC95", "S9V2", "S8X"],
         "model_prefixes": ["58", "59"],
     },
-    "Heat Pump": {
+    "Heat Pump Condenser": {
         "patterns": ["HP", "heat pump", "4TWR", "4TWX", "XL16", "XL15", "XL20i", "25HP"],
         "model_prefixes": ["25"],
     },
@@ -40,8 +41,12 @@ EQUIPMENT_TYPES = {
         "patterns": ["coil", "evap", "4PXC", "4TXC", "CNPV"],
         "model_prefixes": [],
     },
-    "Mini Split": {
+    "Mini Split Condenser": {
         "patterns": ["mini", "ductless", "4MXW", "4MXX", "4MYW"],
+        "model_prefixes": [],
+    },
+    "Thermostat": {
+        "patterns": ["thermostat", "tstat", "XL824", "XL850", "NEST", "ECOBEE"],
         "model_prefixes": [],
     },
 }
@@ -333,8 +338,15 @@ def create_equipment_record(equipment_data: dict, access_token: str) -> dict:
         "Content-Type": "application/json"
     }
     
+    # Log the payload being sent for debugging
+    print(f"[DEBUG] Creating equipment with payload: {json.dumps(equipment_data, indent=2)}")
+    
     try:
         response = requests.post(url, headers=headers, json=equipment_data, timeout=30)
+        
+        # Log full response for debugging
+        print(f"[DEBUG] API Response Status: {response.status_code}")
+        print(f"[DEBUG] API Response Body: {response.text[:1000]}")
         
         if response.status_code in [200, 201]:
             data = response.json()
